@@ -14,8 +14,12 @@ import {
 import { Input } from "@/components/ui/input";
 import * as z from "zod";
 import Image from "next/image";
-import { ChangeEvent } from "react";
+import { ChangeEvent, useState } from "react";
 import { Textarea } from "../ui/textarea";
+import { isBase64Image } from "@/lib/utils";
+import { uploadFiles, useUploadThing } from "@/lib/uploadthing";
+import { updateUser } from "@/lib/actions/user.action";
+import { usePathname, useRouter } from "next/navigation";
 interface Props {
   user: {
     id: string;
@@ -28,6 +32,11 @@ interface Props {
   btnTitle: string;
 }
 const AccountProfile = ({ user, btnTitle }: Props) => {
+  const [file, setFile] = useState<File[]>([]);
+  const { startUpload } = useUploadThing("imageUploader");
+  const router = useRouter();
+  const pathname = usePathname();
+
   const form = useForm({
     resolver: zodResolver(userValidation),
     defaultValues: {
@@ -38,15 +47,46 @@ const AccountProfile = ({ user, btnTitle }: Props) => {
     },
   });
   const handleImage = (
-    e: ChangeEvent,
+    e: ChangeEvent<HTMLInputElement>,
     fieldChange: (value: string) => void
   ) => {
     e.preventDefault();
+    const filereader = new FileReader();
+    if (e.target.files && e.target.files.length > 0) {
+      const file = e.target.files[0];
+      setFile(Array.from(e.target.files));
+      if (!file.type.includes("image")) return;
+      filereader.onload = async (event) => {
+        const imageDataURL = event.target?.result?.toString() || "";
+        fieldChange(imageDataURL);
+      };
+      filereader.readAsDataURL(file);
+    }
   };
-  function onSubmit(values: z.infer<typeof userValidation>) {
-    // Do something with the form values.
-    // ✅ This will be type-safe and validated.
-    console.log(values);
+  async function onSubmit(values: z.infer<typeof userValidation>) {
+    const blob = values.profile_photo;
+    const hasImageChanged = isBase64Image(blob);
+    console.log("Has image changed", hasImageChanged);
+    if (hasImageChanged) {
+      const imageResponse = await startUpload(file);
+      if (imageResponse && imageResponse[0].url) {
+        values.profile_photo = imageResponse[0].url;
+      }
+      console.log("Image response", imageResponse);
+    }
+    await updateUser(
+      user.id,
+      values.username,
+      values.name,
+      values.bio,
+      values.profile_photo,
+      pathname
+    );
+    if (pathname === "/profile/edit") {
+      router.back();
+    } else {
+      router.push("/");
+    }
   }
   return (
     <Form {...form}>
